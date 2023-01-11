@@ -25,7 +25,7 @@ func TestApplicationStart_ExpectRunningWebServer(t *testing.T) {
 			return err == nil
 		},
 		1*time.Second,
-		100*time.Millisecond,
+		5*time.Millisecond,
 	)
 	require.NoError(t, app.stop())
 }
