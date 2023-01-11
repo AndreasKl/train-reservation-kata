@@ -11,6 +11,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/rs/zerolog/pkgerrors"
+
+	referenceapi "github.com/AndreasKl/train-reservation-kata/booking-reference/reference/api"
 )
 
 const (
@@ -23,24 +25,15 @@ type application struct {
 	server *http.Server
 }
 
-type MyHandler string
-
-func (h MyHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	_, err := resp.Write([]byte(h))
-	if err != nil {
-		log.Warn().Err(err).Msg("Not able to send response.")
-		return
-	}
-}
-
 func newApplication() *application {
+	controller := referenceapi.NewController()
 	return &application{
 		server: &http.Server{
 			Addr:              ":8080",
 			ReadTimeout:       serverReadTimeOut,
 			ReadHeaderTimeout: serverReadHeaderTimeout,
 			WriteTimeout:      serverWriteTimeout,
-			Handler:           MyHandler("Hello"),
+			Handler:           controller,
 		}}
 }
 
