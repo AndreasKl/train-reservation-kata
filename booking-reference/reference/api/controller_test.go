@@ -1,16 +1,26 @@
 package api
 
 import (
-	"encoding/json"
-	"fmt"
+	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestReferenceDoesSerialize(t *testing.T) {
-	response, err := json.Marshal(referenceResponse{})
-	require.NoError(t, err)
+func TestController_ServeHTTP(t *testing.T) {
+	controller := NewController(213123)
 
-	fmt.Printf("JSON: %s", string(response))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "/", nil)
+
+	controller.ServeHTTP(recorder, request)
+
+	assert.Equal(t, 200, recorder.Code)
+	assert.Equal(t, "0000000000034084", recorder.Body.String())
+
+	recorderForSecondRequest := httptest.NewRecorder()
+	controller.ServeHTTP(recorderForSecondRequest, request)
+
+	assert.Equal(t, 200, recorderForSecondRequest.Code)
+	assert.Equal(t, "0000000000034085", recorderForSecondRequest.Body.String())
 }

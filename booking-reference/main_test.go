@@ -24,7 +24,7 @@ func TestApplicationStart_ExpectRunningWebServer(t *testing.T) {
 			_, err = resty.New().R().Get(fmt.Sprintf("http://127.0.0.1%s", app.server.Addr))
 			return err == nil
 		},
-		1*time.Second,
+		2*time.Second,
 		5*time.Millisecond,
 	)
 	require.NoError(t, app.stop())

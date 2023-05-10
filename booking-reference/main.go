@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -25,8 +26,12 @@ type application struct {
 	server *http.Server
 }
 
+var defaultStartingPoint int64 = 12345678
+
 func newApplication() *application {
-	controller := referenceapi.NewController()
+	startingPoint := configureStartingPoint()
+
+	controller := referenceapi.NewController(startingPoint)
 	return &application{
 		server: &http.Server{
 			Addr:              ":8080",
@@ -35,6 +40,15 @@ func newApplication() *application {
 			WriteTimeout:      serverWriteTimeout,
 			Handler:           controller,
 		}}
+}
+
+func configureStartingPoint() int64 {
+	startingPoint, err := strconv.ParseInt(os.Getenv("STARTING_POINT"), 10, 0)
+	if err != nil {
+		log.Logger.Info().Msgf("Environment variable STARTING_POINT not set or invalid, defaulting to '%d'.", defaultStartingPoint)
+		return defaultStartingPoint
+	}
+	return startingPoint
 }
 
 func (a *application) start() {
