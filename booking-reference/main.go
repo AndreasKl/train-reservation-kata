@@ -2,18 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"github.com/rs/zerolog/pkgerrors"
-
-	referenceapi "github.com/AndreasKl/train-reservation-kata/booking-reference/reference/api"
+	"github.com/google/uuid"
 )
 
 const (
@@ -29,9 +29,7 @@ type application struct {
 var defaultStartingPoint int64 = 12345678
 
 func newApplication() *application {
-	startingPoint := configureStartingPoint()
-
-	controller := referenceapi.NewController(startingPoint)
+	controller := NewController(configureStartingPoint())
 	return &application{
 		server: &http.Server{
 			Addr:              ":8080",
@@ -45,40 +43,39 @@ func newApplication() *application {
 func configureStartingPoint() int64 {
 	startingPoint, err := strconv.ParseInt(os.Getenv("STARTING_POINT"), 10, 0)
 	if err != nil {
-		log.Logger.Info().Msgf("Environment variable STARTING_POINT not set or invalid, defaulting to '%d'.", defaultStartingPoint)
+		log.Printf("Environment variable STARTING_POINT not set or invalid, defaulting to '%d'.\n", defaultStartingPoint)
 		return defaultStartingPoint
 	}
 	return startingPoint
 }
 
 func (a *application) start() {
-	log.Logger.Info().Msg("Application starting.")
+	log.Println("Application starting.")
 
 	a.startHTTPServer()
-
-	log.Logger.Info().Msg("Application started.")
+	log.Println("Application started.")
 }
 
 func (a *application) startHTTPServer() {
 	go func() {
 		if err := a.server.ListenAndServe(); err != nil {
 			if err == http.ErrServerClosed {
-				log.Logger.Info().Msg("Server shutdown.")
+				log.Println("Server shutdown.")
 			} else {
-				log.Logger.Panic().Err(err).Msg("Unexpected server error.")
+				log.Fatalf("Unexpected server error on server shutdown. Cause: %s\n", err.Error())
 			}
 		}
 	}()
 }
 
 func (a *application) stop() error {
-	log.Logger.Info().Msg("Application shutting down.")
+	log.Print("Application shutting down.")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := a.server.Shutdown(ctx)
 
-	log.Logger.Info().Msg("Application shutdown.")
+	log.Print("Application shutdown.")
 	return err
 }
 
@@ -87,7 +84,6 @@ func main() {
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
 	_ = os.Setenv("TZ", "UTC")
-	setupLogging()
 
 	app := newApplication()
 	app.start()
@@ -95,9 +91,44 @@ func main() {
 	_ = app.stop()
 }
 
-func setupLogging() {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+type ID uuid.UUID
 
-	log.Logger = log.With().Caller().Str("application", "booking-reference").Logger()
+type Reference struct {
+	ID ID
+}
+
+type Controller struct {
+	startingPoint atomic.Int64
+}
+
+func NewController(startingPoint int64) *Controller {
+	c := &Controller{}
+	c.startingPoint.Store(startingPoint)
+	return c
+}
+
+type ReferenceResponse struct {
+	Value string `json:"value"`
+}
+
+func (c *Controller) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
+	reference, err := json.Marshal(c.fetchReference())
+	if err != nil {
+		log.Println("Not able convert to json.")
+		resp.WriteHeader(500)
+		return
+	}
+
+	resp.Header().Add("Content-Type", "application/json")
+	_, err = resp.Write(reference)
+
+	if err != nil {
+		log.Println("Not able to send response.")
+		return
+	}
+}
+
+func (c *Controller) fetchReference() ReferenceResponse {
+	reference := fmt.Sprintf("%016x", c.startingPoint.Add(1))
+	return ReferenceResponse{Value: reference}
 }

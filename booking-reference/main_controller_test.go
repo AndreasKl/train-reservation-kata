@@ -1,4 +1,4 @@
-package api
+package main
 
 import (
 	"net/http/httptest"
@@ -16,11 +16,11 @@ func TestController_ServeHTTP(t *testing.T) {
 	controller.ServeHTTP(recorder, request)
 
 	assert.Equal(t, 200, recorder.Code)
-	assert.Equal(t, "0000000000034084", recorder.Body.String())
+	assert.JSONEq(t, `{"value": "0000000000034084"}`, recorder.Body.String())
 
 	recorderForSecondRequest := httptest.NewRecorder()
 	controller.ServeHTTP(recorderForSecondRequest, request)
 
 	assert.Equal(t, 200, recorderForSecondRequest.Code)
-	assert.Equal(t, "0000000000034085", recorderForSecondRequest.Body.String())
+	assert.JSONEq(t, `{"value": "0000000000034085"}`, recorderForSecondRequest.Body.String())
 }
