@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,28 +18,20 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	serverReadHeaderTimeout = 5 * time.Second
-	serverWriteTimeout      = 10 * time.Second
-	serverReadTimeOut       = 120 * time.Second
-)
-
 type application struct {
-	server *http.Server
+	*http.Server
 }
 
 var defaultStartingPoint int64 = 12345678
 
-func newApplication() *application {
+func newApplication(production bool) *application {
 	controller := NewController(configureStartingPoint())
 	return &application{
-		server: &http.Server{
-			Addr:              ":8080",
-			ReadTimeout:       serverReadTimeOut,
-			ReadHeaderTimeout: serverReadHeaderTimeout,
-			WriteTimeout:      serverWriteTimeout,
-			Handler:           controller,
-		}}
+		&http.Server{
+			Addr:    getPort(production),
+			Handler: controller,
+		},
+	}
 }
 
 func configureStartingPoint() int64 {
@@ -53,12 +47,12 @@ func (a *application) start() {
 	log.Println("Application starting.")
 
 	a.startHTTPServer()
-	log.Println("Application started.")
+	log.Printf("Application started. Listening on port %s.\n", a.Addr)
 }
 
 func (a *application) startHTTPServer() {
 	go func() {
-		if err := a.server.ListenAndServe(); err != nil {
+		if err := a.ListenAndServe(); err != nil {
 			if err == http.ErrServerClosed {
 				log.Println("Server shutdown.")
 			} else {
@@ -73,7 +67,7 @@ func (a *application) stop() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err := a.server.Shutdown(ctx)
+	err := a.Shutdown(ctx)
 
 	log.Print("Application shutdown.")
 	return err
@@ -85,7 +79,7 @@ func main() {
 
 	_ = os.Setenv("TZ", "UTC")
 
-	app := newApplication()
+	app := newApplication(true)
 	app.start()
 	<-shutdown
 	_ = app.stop()
@@ -131,4 +125,28 @@ func (c *Controller) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 func (c *Controller) fetchReference() ReferenceResponse {
 	reference := fmt.Sprintf("%016x", c.startingPoint.Add(1))
 	return ReferenceResponse{Value: reference}
+}
+
+func getPort(production bool) string {
+	if production {
+		return ":8082"
+	}
+
+	port, err := findRandomFreePort()
+	if err != nil {
+		log.Fatalf("Could not find a free port. Cause: %s\n", err.Error())
+	}
+	return ":" + strconv.Itoa(port)
+}
+
+func findRandomFreePort() (port int, err error) {
+	var a *net.TCPAddr
+	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
+		var listener *net.TCPListener
+		if listener, err = net.ListenTCP("tcp", a); err == nil {
+			defer listener.Close()
+			return listener.Addr().(*net.TCPAddr).Port, nil
+		}
+	}
+	return 0, errors.New("could not find free port")
 }

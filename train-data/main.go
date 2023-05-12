@@ -3,50 +3,38 @@ package main
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/AndreasKl/train-reservation-kata/train-data/reservation"
+	"github.com/AndreasKl/train-reservation-kata/train-data/reservation/api"
 	"github.com/julienschmidt/httprouter"
 )
-
-const (
-	serverReadHeaderTimeout = 5 * time.Second
-	serverWriteTimeout      = 10 * time.Second
-	serverReadTimeOut       = 120 * time.Second
-)
-
-//go:embed trains.json
-var trainData []byte
 
 type application struct {
 	*http.Server
 }
 
-func newApplication() *application {
-	trains, err := prepareTrains()
-	if err != nil {
-		log.Fatalf("Failed to prepare trains. Cause: %s\n", err.Error())
-	}
-
-	log.Printf("Loaded a few trains. Choooo, chooo:\n\n%+v", trains)
+func newApplication(production bool) *application {
+	trainService := reservation.NewTrainServiceWithDefaultTrains()
+	reservationApi := api.NewReservationApi(trainService)
 
 	router := httprouter.New()
-	router.GET("/data_for_train/:trainID", fetchDataForTrainById(trains))
-	router.POST("/reserve", reserveSingleSeat(trains))
-	router.POST("/reset", resetAllReservations(trains))
+	router.GET("/data_for_train/:trainID", reservationApi.FetchDataForTrainById)
+	router.POST("/reserve", reservationApi.ReserveSeats)
+	router.POST("/reset", reservationApi.ResetAllReservations)
 
 	return &application{
 		&http.Server{
-			Addr:              ":8080",
-			ReadTimeout:       serverReadTimeOut,
-			ReadHeaderTimeout: serverReadHeaderTimeout,
-			WriteTimeout:      serverWriteTimeout,
-			Handler:           router,
+			Addr:    getPort(production),
+			Handler: router,
 		}}
 }
 
@@ -54,7 +42,7 @@ func (a *application) start() {
 	log.Println("Application starting.")
 
 	a.startHTTPServer()
-	log.Println("Application started.")
+	log.Printf("Application started. Listening on port %s.\n", a.Addr)
 }
 
 func (a *application) startHTTPServer() {
@@ -86,95 +74,32 @@ func main() {
 
 	_ = os.Setenv("TZ", "UTC")
 
-	app := newApplication()
+	app := newApplication(true)
 	app.start()
 	<-shutdown
 	_ = app.stop()
 }
 
-type Trains map[string]Train
-
-type Train struct {
-	Seats Seats
-}
-
-type Seats map[string]Seat
-
-type Seat struct {
-	Coach            string `json:"coach"`
-	SeatNumber       string `json:"seat_number"`
-	BookingReference string `json:"booking_reference"`
-}
-
-func prepareTrains() (trains Trains, err error) {
-	return trains, json.Unmarshal(trainData, &trains)
-}
-
-func fetchDataForTrainById(trains Trains) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		trainID := ps.ByName("trainID")
-		if train, ok := trains[trainID]; ok {
-			_ = json.NewEncoder(w).Encode(train)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
+func getPort(production bool) string {
+	if production {
+		return ":8080"
 	}
-}
 
-type Reservation struct {
-	TrainID          string   `json:"train_id"`
-	BookingReference string   `json:"booking_reference"`
-	Seats            []string `json:"seats"`
-}
-
-func reserveSingleSeat(trains Trains) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-		var reservations Reservation
-		if err := json.NewDecoder(r.Body).Decode(&reservations); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if reservations.TrainID == "" || reservations.BookingReference == "" || len(reservations.Seats) == 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		if train, ok := trains[reservations.TrainID]; ok {
-			// FIXME: Build a train service to handle this logic and
-			// consider all or nothing semantics or partial booking.
-
-			for _, seatID := range reservations.Seats {
-				seat := train.Seats[seatID]
-				if seat.BookingReference != "" {
-					w.WriteHeader(http.StatusConflict)
-					return
-				}
-
-				trains[reservations.TrainID].Seats[seatID] = Seat{
-					Coach:            seat.Coach,
-					SeatNumber:       seat.SeatNumber,
-					BookingReference: reservations.BookingReference,
-				}
-			}
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
+	port, err := findRandomFreePort()
+	if err != nil {
+		log.Fatalf("Could not find a free port. Cause: %s\n", err.Error())
 	}
+	return ":" + strconv.Itoa(port)
 }
 
-func resetAllReservations(trains Trains) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		for trainName, train := range trains {
-			for seatID, seat := range train.Seats {
-				trains[trainName].Seats[seatID] = Seat{
-					Coach:            seat.Coach,
-					SeatNumber:       seat.SeatNumber,
-					BookingReference: "",
-				}
-			}
+func findRandomFreePort() (port int, err error) {
+	var a *net.TCPAddr
+	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
+		var listener *net.TCPListener
+		if listener, err = net.ListenTCP("tcp", a); err == nil {
+			defer listener.Close()
+			return listener.Addr().(*net.TCPAddr).Port, nil
 		}
-
-		_ = json.NewEncoder(w).Encode(trains)
 	}
+	return 0, errors.New("could not find free port")
 }
