@@ -2,45 +2,40 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	_ "embed"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
-	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/AndreasKl/train-reservation-kata/train-data/reservation"
+	"github.com/AndreasKl/train-reservation-kata/train-data/reservation/api"
+	"github.com/julienschmidt/httprouter"
 )
 
 type application struct {
 	*http.Server
 }
 
-var defaultStartingPoint int64 = 12345678
-
 func newApplication(production bool) *application {
-	controller := NewController(configureStartingPoint())
+	trainService := reservation.NewTrainServiceWithDefaultTrains()
+	reservationApi := api.NewReservationApi(trainService)
+
+	router := httprouter.New()
+	router.GET("/data_for_train/:trainID", reservationApi.FetchDataForTrainById)
+	router.POST("/reserve", reservationApi.ReserveSeats)
+	router.POST("/reset", reservationApi.ResetAllReservations)
+
 	return &application{
 		&http.Server{
 			Addr:    getPort(production),
-			Handler: controller,
-		},
-	}
-}
-
-func configureStartingPoint() int64 {
-	startingPoint, err := strconv.ParseInt(os.Getenv("STARTING_POINT"), 10, 0)
-	if err != nil {
-		log.Printf("Environment variable STARTING_POINT not set or invalid, defaulting to '%d'.\n", defaultStartingPoint)
-		return defaultStartingPoint
-	}
-	return startingPoint
+			Handler: router,
+		}}
 }
 
 func (a *application) start() {
@@ -85,51 +80,9 @@ func main() {
 	_ = app.stop()
 }
 
-type ID uuid.UUID
-
-type Reference struct {
-	ID ID
-}
-
-type Controller struct {
-	startingPoint atomic.Int64
-}
-
-func NewController(startingPoint int64) *Controller {
-	c := &Controller{}
-	c.startingPoint.Store(startingPoint)
-	return c
-}
-
-type ReferenceResponse struct {
-	Value string `json:"value"`
-}
-
-func (c *Controller) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	reference, err := json.Marshal(c.fetchReference())
-	if err != nil {
-		log.Println("Not able convert to json.")
-		resp.WriteHeader(500)
-		return
-	}
-
-	resp.Header().Add("Content-Type", "application/json")
-	_, err = resp.Write(reference)
-
-	if err != nil {
-		log.Println("Not able to send response.")
-		return
-	}
-}
-
-func (c *Controller) fetchReference() ReferenceResponse {
-	reference := fmt.Sprintf("%016x", c.startingPoint.Add(1))
-	return ReferenceResponse{Value: reference}
-}
-
 func getPort(production bool) string {
 	if production {
-		return ":8082"
+		return ":8080"
 	}
 
 	port, err := findRandomFreePort()
