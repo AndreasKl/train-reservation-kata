@@ -57,15 +57,19 @@ func (a *ReservationApi) ReserveSeats(w http.ResponseWriter, r *http.Request, _ 
 	}
 
 	if err := a.trainService.ReserveSeats(res); err != nil {
-		errorResponse(err, w)
+		http.Error(w, err.Error(), statusCodeForError(err))
 		return
 	}
 
-	if train, ok := a.trainService.TrainByID(res.TrainID); ok {
-		_ = json.NewEncoder(w).Encode(train)
+	train, ok := a.trainService.TrainByID(res.TrainID)
+	if !ok {
+		http.Error(w, "Not able to find the train that received a reservation.", http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusInternalServerError)
+
+	if err := json.NewEncoder(w).Encode(train); err != nil {
+		http.Error(w, err.Error(), statusCodeForError(err))
+	}
 }
 
 func (a *ReservationApi) ResetAllReservations(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -73,14 +77,12 @@ func (a *ReservationApi) ResetAllReservations(w http.ResponseWriter, r *http.Req
 	_ = json.NewEncoder(w).Encode(a.trainService.Trains())
 }
 
-func errorResponse(err error, w http.ResponseWriter) {
-	if err == reservation.ErrTrainNotFound {
-		w.WriteHeader(http.StatusNotFound)
-		return
+func statusCodeForError(err error) int {
+	switch err {
+	case reservation.ErrTrainNotFound:
+		return http.StatusNotFound
+	case reservation.ErrSeatAlreadyReserved:
+		return http.StatusConflict
 	}
-	if err == reservation.ErrSeatAlreadyReserved {
-		w.WriteHeader(http.StatusConflict)
-		return
-	}
-	w.WriteHeader(http.StatusInternalServerError)
+	return http.StatusInternalServerError
 }

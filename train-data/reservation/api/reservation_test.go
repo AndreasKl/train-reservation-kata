@@ -44,9 +44,9 @@ func TestReservationApi_ReserveSeats_AlreadyBooked(t *testing.T) {
 
 	recorder = httptest.NewRecorder()
 	api.ReserveSeats(recorder, reservationRequest(reservationPayload), nil)
-	assert.Equal(t, http.StatusConflict, recorder.Code)
 
-	assert.Equal(t, "", recorder.Body.String())
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.Equal(t, "seat already reserved\n", recorder.Body.String())
 }
 
 func TestReservationApi_ReserveSeats_UnknownTrain(t *testing.T) {
@@ -54,8 +54,9 @@ func TestReservationApi_ReserveSeats_UnknownTrain(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	api.ReserveSeats(recorder, reservationRequest(`{"train_id": "not_known", "seats": ["1A", "1B"], "booking_reference": "75bcd15"}`), nil)
+
 	assert.Equal(t, http.StatusNotFound, recorder.Code)
-	assert.Equal(t, "", recorder.Body.String())
+	assert.Equal(t, "train not found\n", recorder.Body.String())
 }
 
 func TestReservationApi_ResetAllReservations(t *testing.T) {

@@ -2,34 +2,31 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
-	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/AndreasKl/train-reservation-kata/booking-reference/reference"
 )
+
+var defaultStartingPoint int64 = 12345678
 
 type application struct {
 	*http.Server
 }
 
-var defaultStartingPoint int64 = 12345678
-
 func newApplication(production bool) *application {
-	controller := NewController(configureStartingPoint())
+	referenceController := reference.NewController(configureStartingPoint())
 	return &application{
 		&http.Server{
 			Addr:    getPort(production),
-			Handler: controller,
+			Handler: http.HandlerFunc(referenceController.GenerateNext),
 		},
 	}
 }
@@ -85,46 +82,16 @@ func main() {
 	_ = app.stop()
 }
 
-type ID uuid.UUID
-
-type Reference struct {
-	ID ID
-}
-
-type Controller struct {
-	startingPoint atomic.Int64
-}
-
-func NewController(startingPoint int64) *Controller {
-	c := &Controller{}
-	c.startingPoint.Store(startingPoint)
-	return c
-}
-
-type ReferenceResponse struct {
-	Value string `json:"value"`
-}
-
-func (c *Controller) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	reference, err := json.Marshal(c.fetchReference())
-	if err != nil {
-		log.Println("Not able convert to json.")
-		resp.WriteHeader(500)
-		return
+func findRandomFreePort() (port int, err error) {
+	var a *net.TCPAddr
+	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
+		var listener *net.TCPListener
+		if listener, err = net.ListenTCP("tcp", a); err == nil {
+			defer listener.Close()
+			return listener.Addr().(*net.TCPAddr).Port, nil
+		}
 	}
-
-	resp.Header().Add("Content-Type", "application/json")
-	_, err = resp.Write(reference)
-
-	if err != nil {
-		log.Println("Not able to send response.")
-		return
-	}
-}
-
-func (c *Controller) fetchReference() ReferenceResponse {
-	reference := fmt.Sprintf("%016x", c.startingPoint.Add(1))
-	return ReferenceResponse{Value: reference}
+	return 0, errors.New("could not find free port")
 }
 
 func getPort(production bool) string {
@@ -137,16 +104,4 @@ func getPort(production bool) string {
 		log.Fatalf("Could not find a free port. Cause: %s\n", err.Error())
 	}
 	return ":" + strconv.Itoa(port)
-}
-
-func findRandomFreePort() (port int, err error) {
-	var a *net.TCPAddr
-	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
-		var listener *net.TCPListener
-		if listener, err = net.ListenTCP("tcp", a); err == nil {
-			defer listener.Close()
-			return listener.Addr().(*net.TCPAddr).Port, nil
-		}
-	}
-	return 0, errors.New("could not find free port")
 }
