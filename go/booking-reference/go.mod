@@ -3,7 +3,7 @@ module github.com/AndreasKl/train-reservation-kata/booking-reference
 go 1.20
 
 require (
-	github.com/go-resty/resty/v2 v2.10.0
+	github.com/go-resty/resty/v2 v2.11.0
 	github.com/stretchr/testify v1.8.4
 )
 
