@@ -13,7 +13,7 @@ repositories {
 dependencies {
     implementation("io.vertx:vertx-web:4.4.4")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
-    testImplementation("org.junit.jupiter:junit-jupiter-engine:5.9.3")
+    testImplementation("org.junit.jupiter:junit-jupiter-engine:5.10.2")
     testImplementation("io.vertx:vertx-web-client:4.4.4")
 }
 
